@@ -46,7 +46,7 @@ Push your project repository to GitHub (or use the Render Git connection).
 2. Click **New +** -> **Web Service**.
 3. Select your GitHub repository.
 4. Configure the service:
-   - **Name:** `focussense-api`
+   - **Name:** `snehal-karki-2`
    - **Root Directory:** `server`
    - **Runtime:** `Python 3`
    - **Build Command:** `pip install -r requirements.txt`
@@ -62,7 +62,7 @@ In the **Environment** tab on Render, add these variables:
 - `DEEPSEEK_MODEL` *(Optional)*: e.g. `deepseek-chat` or `deepseek-r1-distill-qwen-7b`.
 
 Click **Deploy Web Service**. Once deployed, Render will provide your public URL:
-`https://focussense-api.onrender.com`
+`https://snehal-karki-2.onrender.com`
 
 ---
 
@@ -71,5 +71,5 @@ Click **Deploy Web Service**. Once deployed, Render will provide your public URL
 In the FocusSense Android app:
 - Open the app on either Parent or Child phone.
 - Tap **Advanced: Configure Server URL**.
-- Enter your live Render URL (e.g. `https://focussense-api.onrender.com`).
+- Enter your live Render URL (e.g. `https://snehal-karki-2.onrender.com`).
 - Tap **Test Server Connection** to verify live communication with Supabase!

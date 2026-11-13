@@ -26,8 +26,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
@@ -57,9 +59,18 @@ import com.example.ai.ThreatEvaluationEngine
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.data.model.AppUsageStatRecord
+import com.example.data.model.ScreenStreamSession
 import com.example.data.remote.AIConfigUpdateRequest
 import com.example.data.remote.ApiClient
+import com.example.ui.components.ParentLiveScreenWatchCard
+import com.example.ui.components.UsageStatsGraphsCard
+import com.example.util.ChildPermissionManager
 import com.example.ui.theme.CoralDanger
 import com.example.ui.theme.CoralDangerBg
 import androidx.compose.material3.AlertDialog
@@ -89,6 +100,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -163,6 +175,14 @@ fun ParentDashboardScreen(
     onRefreshInstalledApps: () -> Unit = {},
     onSwitchAccountRequested: () -> Unit = {},
     onCreateChildAccountRequested: () -> Unit = {},
+    screenStream: ScreenStreamSession? = null,
+    childUsageStats: List<AppUsageStatRecord> = emptyList(),
+    myUsageStats: List<AppUsageStatRecord> = emptyList(),
+    onRequestWatch: () -> Unit = {},
+    onStopWatch: () -> Unit = {},
+    onRefreshUsageStats: () -> Unit = {},
+    googleAccountEmail: String? = null,
+    onSignOutAll: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -172,6 +192,8 @@ fun ParentDashboardScreen(
 
     val childName = selectedChild?.name ?: "Child"
     val unacknowledgedThreats = flaggedAlerts.filter { !it.isAcknowledged }
+    val isLiveStreaming = screenStream?.isStreaming == true &&
+        (System.currentTimeMillis() - (screenStream.capturedAtMs)) < 15_000L
 
     Scaffold(
         modifier = modifier.fillMaxWidth(),
@@ -198,35 +220,43 @@ fun ParentDashboardScreen(
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    icon = {
+                        if (isLiveStreaming) {
+                            BadgedBox(badge = { Badge(containerColor = CoralDanger) {} }) {
+                                Icon(Icons.Default.BarChart, contentDescription = "Live Screen & Usage Stats")
+                            }
+                        } else {
+                            Icon(Icons.Default.BarChart, contentDescription = "Live Screen & Usage Stats")
+                        }
+                    },
+                    label = { Text("Live & Stats", fontSize = 10.sp) },
+                    modifier = Modifier.testTag("tab_live_stats")
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.Schedule, contentDescription = "Schedule") },
                     label = { Text("Schedules", fontSize = 11.sp) },
                     modifier = Modifier.testTag("tab_schedules")
                 )
                 NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
                     icon = { Icon(Icons.Default.LocationOn, contentDescription = "Location") },
                     label = { Text("Map", fontSize = 11.sp) },
                     modifier = Modifier.testTag("tab_location")
                 )
                 NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Security, contentDescription = "Devices & Sync") },
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
+                    icon = { Icon(Icons.Default.Security, contentDescription = "Devices & Cloud") },
                     label = { Text("Devices", fontSize = 11.sp) },
                     modifier = Modifier.testTag("tab_devices")
-                )
-                NavigationBarItem(
-                    selected = false,
-                    onClick = onSwitchAccountRequested,
-                    icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Switch Account & Profile") },
-                    label = { Text("Account", fontSize = 11.sp) },
-                    modifier = Modifier.testTag("tab_switch_account")
                 )
             }
         },
         floatingActionButton = {
-            if (selectedTab == 1) {
+            if (selectedTab == 2) {
                 FloatingActionButton(
                     onClick = { showAddRuleDialog = true },
                     containerColor = IndigoPrimary,
@@ -253,9 +283,18 @@ fun ParentDashboardScreen(
                     onSelectLog = { selectedLogForDetail = it },
                     onAcknowledge = onAcknowledgeAlert,
                     onRemove = onRemoveLog,
-                    onNavigateToThreatLab = { selectedTab = 3 }
+                    onNavigateToThreatLab = { selectedTab = 4 }
                 )
-                1 -> ScheduleManagerTab(
+                1 -> ParentLiveAndStatsTab(
+                    childName = childName,
+                    screenStream = screenStream,
+                    childUsageStats = childUsageStats,
+                    myUsageStats = myUsageStats,
+                    onRequestWatch = onRequestWatch,
+                    onStopWatch = onStopWatch,
+                    onRefreshUsageStats = onRefreshUsageStats
+                )
+                2 -> ScheduleManagerTab(
                     childName = childName,
                     rules = scheduleRules,
                     installedApps = installedApps,
@@ -265,7 +304,7 @@ fun ParentDashboardScreen(
                     onRefreshApps = onRefreshInstalledApps,
                     onAddNewClick = { showAddRuleDialog = true }
                 )
-                2 -> LiveLocationMapTab(
+                3 -> LiveLocationMapTab(
                     childName = childName,
                     latestLocation = latestLocation,
                     locationHistory = locationHistory,
@@ -273,7 +312,7 @@ fun ParentDashboardScreen(
                         onRequestLocationPing?.invoke() ?: onManualLocationPing(0.0, 0.0, "Request Live GPS Ping")
                     }
                 )
-                3 -> FamilyAndDevicesTab(
+                4 -> FamilyAndDevicesTab(
                     selectedChild = selectedChild,
                     devices = devices,
                     unsyncedCount = unsyncedCount,
@@ -283,7 +322,10 @@ fun ParentDashboardScreen(
                     onTestServer = onTestServer,
                     onSyncNow = onSyncNow,
                     activePairingCode = activePairingCode,
-                    onGeneratePairingCode = onGeneratePairingCode
+                    onGeneratePairingCode = onGeneratePairingCode,
+                    googleAccountEmail = googleAccountEmail,
+                    onSwitchAccountRequested = onSwitchAccountRequested,
+                    onSignOutAll = onSignOutAll
                 )
             }
         }
@@ -1385,7 +1427,119 @@ private fun LiveLocationMapTab(
 }
 
 // -------------------------------------------------------------
-// TAB 3: FAMILY, DEVICES & ZERO DATA-LOSS SYNC
+// TAB 1: LIVE CHILD SCREEN WATCH & APP USAGE GRAPHS
+// -------------------------------------------------------------
+@Composable
+private fun ParentLiveAndStatsTab(
+    childName: String,
+    screenStream: ScreenStreamSession?,
+    childUsageStats: List<AppUsageStatRecord>,
+    myUsageStats: List<AppUsageStatRecord>,
+    onRequestWatch: () -> Unit,
+    onStopWatch: () -> Unit,
+    onRefreshUsageStats: () -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var statsOwnerTab by remember { mutableIntStateOf(0) } // 0 = Child Stats, 1 = My Device Stats
+    var hasUsagePermission by remember {
+        mutableStateOf(ChildPermissionManager.isUsageAccessGranted(context))
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasUsagePermission = ChildPermissionManager.isUsageAccessGranted(context)
+                onRefreshUsageStats()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Column {
+                Text(
+                    text = "Live Screen & App Analytics",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Powered by Firebase Firestore real-time stream & Android UsageStatsManager.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        item {
+            ParentLiveScreenWatchCard(
+                childName = childName,
+                session = screenStream,
+                onRequestWatch = onRequestWatch,
+                onStopWatch = onStopWatch
+            )
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = statsOwnerTab == 0,
+                    onClick = { statsOwnerTab = 0 },
+                    label = { Text("$childName's Phone Stats", fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("stats_toggle_child")
+                )
+                FilterChip(
+                    selected = statsOwnerTab == 1,
+                    onClick = { statsOwnerTab = 1 },
+                    label = { Text("My Phone Stats", fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("stats_toggle_parent")
+                )
+            }
+        }
+
+        item {
+            if (statsOwnerTab == 0) {
+                UsageStatsGraphsCard(
+                    title = "$childName's App Time Today",
+                    subtitle = "Live app screen-time graph synced from $childName's phone",
+                    stats = childUsageStats,
+                    hasUsagePermission = true,
+                    showPermissionAction = false,
+                    onRequestUsagePermission = {},
+                    onRefreshStats = onRefreshUsageStats
+                )
+            } else {
+                UsageStatsGraphsCard(
+                    title = "My Phone Screen Time Today",
+                    subtitle = "Your personal app usage breakdown & charts",
+                    stats = myUsageStats,
+                    hasUsagePermission = hasUsagePermission,
+                    showPermissionAction = true,
+                    onRequestUsagePermission = { ChildPermissionManager.openUsageAccessSettings(context) },
+                    onRefreshStats = onRefreshUsageStats
+                )
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// TAB 4: FAMILY, DEVICES & DUAL-CLOUD SYNC (FIREBASE + SUPABASE)
 // -------------------------------------------------------------
 @Composable
 private fun FamilyAndDevicesTab(
@@ -1398,7 +1552,10 @@ private fun FamilyAndDevicesTab(
     onTestServer: suspend () -> Pair<Boolean, String>,
     onSyncNow: () -> Unit,
     activePairingCode: com.example.data.remote.GeneratePairingCodeResponseDto? = null,
-    onGeneratePairingCode: (() -> Unit)? = null
+    onGeneratePairingCode: (() -> Unit)? = null,
+    googleAccountEmail: String? = null,
+    onSwitchAccountRequested: () -> Unit = {},
+    onSignOutAll: (() -> Unit)? = null
 ) {
     var editedUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
     var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
@@ -1415,15 +1572,116 @@ private fun FamilyAndDevicesTab(
         item {
             Column {
                 Text(
-                    text = "Family & Device Ecosystem",
+                    text = "Family & Dual-Cloud Ecosystem",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Centralized Python REST API and PostgreSQL (Supabase) connecting parent and child devices.",
+                    text = "Supabase PostgreSQL (auth, pairing, schedules, logs) + Firebase Firestore (live screen & app graphs).",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        // Dual-Cloud Firebase + Google Account Card
+        item {
+            ElevatedCard(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("dual_cloud_firebase_card")
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = PurpleAccent.copy(alpha = 0.14f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDone,
+                                        contentDescription = null,
+                                        tint = PurpleAccent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Firebase Firestore + Google Auth",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    text = googleAccountEmail?.takeIf { it.isNotBlank() } ?: "Google session active",
+                                    fontSize = 11.sp,
+                                    color = PurpleAccent
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = EmeraldSafeBg
+                        ) {
+                            Text(
+                                text = "Connected",
+                                color = EmeraldSafe,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Dual-cloud active: Real-time screen frames and app screen-time telemetry stream through Cloud Firestore alongside Supabase PostgreSQL records.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onSwitchAccountRequested,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("devices_switch_role_button")
+                        ) {
+                            Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Switch Profile", fontSize = 12.sp)
+                        }
+
+                        if (onSignOutAll != null) {
+                            OutlinedButton(
+                                onClick = onSignOutAll,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CoralDanger),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("devices_google_signout_button")
+                            ) {
+                                Text("Sign Out Google", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
             }
         }
 

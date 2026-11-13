@@ -105,6 +105,7 @@ class FocusSenseAccessibilityService : AccessibilityService() {
 
         // 1. Instant Synchronous Check (0ms latency from in-memory cache)
         val appLabel = getAppLabel(pkgName)
+        _currentForegroundAppLabel.value = appLabel
         if (app.repository.isPackageBlockedSync(pkgName)) {
             launchBlockScreen(
                 packageName = pkgName,
@@ -318,5 +319,8 @@ class FocusSenseAccessibilityService : AccessibilityService() {
 
         private val _metrics = MutableStateFlow(ScraperMetrics())
         val metrics = _metrics.asStateFlow()
+
+        private val _currentForegroundAppLabel = MutableStateFlow("Home Screen")
+        val currentForegroundAppLabel = _currentForegroundAppLabel.asStateFlow()
     }
 }

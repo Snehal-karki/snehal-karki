@@ -104,6 +104,8 @@ enum class SelectedRoleView {
 @Composable
 fun RoleSelectionAuthScreen(
     viewModel: FocusSenseViewModel,
+    googleAccountEmail: String? = null,
+    onSignOutGoogle: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isAuthLoading by viewModel.isAuthLoading.collectAsStateWithLifecycle()
@@ -124,6 +126,8 @@ fun RoleSelectionAuthScreen(
             // Hero Brand Header
             AuthBrandHeader(
                 currentView = currentView,
+                googleAccountEmail = googleAccountEmail,
+                onSignOutGoogle = onSignOutGoogle,
                 onBack = {
                     viewModel.clearAuthError()
                     currentView = SelectedRoleView.ROLE_PICKER
@@ -202,6 +206,8 @@ fun RoleSelectionAuthScreen(
 @Composable
 private fun AuthBrandHeader(
     currentView: SelectedRoleView,
+    googleAccountEmail: String?,
+    onSignOutGoogle: (() -> Unit)?,
     onBack: () -> Unit
 ) {
     Box(
@@ -242,7 +248,15 @@ private fun AuthBrandHeader(
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color.White.copy(alpha = 0.15f),
-                    modifier = Modifier.padding(end = 12.dp)
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .let { mod ->
+                            if (onSignOutGoogle != null) {
+                                mod.clickable { onSignOutGoogle() }
+                            } else {
+                                mod
+                            }
+                        }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -256,7 +270,11 @@ private fun AuthBrandHeader(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Cloud Ready",
+                            text = if (!googleAccountEmail.isNullOrBlank()) {
+                                "${googleAccountEmail.substringBefore("@")} • Switch"
+                            } else {
+                                "Firebase + Supabase Ready"
+                            },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color.White

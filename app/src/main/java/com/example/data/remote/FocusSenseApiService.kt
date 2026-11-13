@@ -313,7 +313,7 @@ interface FocusSenseApiService {
 }
 
 object ApiClient {
-    private var currentBaseUrl: String = "https://ais-dev-oopvudz6wyelc5jkmrnerc-562689220446.asia-east1.run.app"
+    private var currentBaseUrl: String = "https://snehal-karki-2.onrender.com"
     private var securePrefs: com.example.data.local.SecurePreferences? = null
 
     fun setSecurePreferences(prefs: com.example.data.local.SecurePreferences) {
@@ -335,8 +335,8 @@ object ApiClient {
         val formattedUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val clientBuilder = OkHttpClient.Builder()
             .addInterceptor(logging)
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
 
         if (prefs != null) {
             clientBuilder.addInterceptor(AuthInterceptor(prefs))

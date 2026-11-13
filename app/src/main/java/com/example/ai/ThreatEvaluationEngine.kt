@@ -145,7 +145,7 @@ class ThreatEvaluationEngine(private val customContext: Context? = null) {
         appName: String,
         contentTitle: String,
         extractedText: String,
-        serverUrl: String = "https://parental-controll.onrender.com",
+        serverUrl: String = "https://snehal-karki-2.onrender.com",
         forceOfflineOnly: Boolean = false,
         ablationMode: ThreatAblationMode = ThreatAblationMode.CASCADED_TRI_LAYER
     ): ThreatAnalysisResult = withContext(Dispatchers.IO) {

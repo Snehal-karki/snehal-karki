@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.HourglassBottom
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
@@ -73,11 +75,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.model.ActivityLogEntity
 import com.example.data.model.AllowedYouTubeChannelEntity
+import com.example.data.model.AppUsageStatRecord
 import com.example.data.model.LocationPointEntity
 import com.example.data.model.RestrictedAppInfo
 import com.example.data.model.ScheduleRuleEntity
+import com.example.data.model.ScreenStreamSession
 import com.example.data.model.UserEntity
 import com.example.data.repository.FocusSenseRepository
+import com.example.ui.components.ChildLiveScreenShareCard
+import com.example.ui.components.UsageStatsGraphsCard
 import com.example.ui.screens.child.youtube.FocusYouTubeScreen
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.AmberWarningBg
@@ -117,6 +123,12 @@ fun ChildDashboardScreen(
     onSimulateRestrictedLaunch: (pkg: String, name: String) -> Unit = { _, _ -> },
     onDismissSimulatedLog: () -> Unit = {},
     onRequestParentUnlock: () -> Unit,
+    screenStream: ScreenStreamSession? = null,
+    myUsageStats: List<AppUsageStatRecord> = emptyList(),
+    isMirroringActive: Boolean = false,
+    onStartScreenShare: () -> Unit = {},
+    onStopScreenShare: () -> Unit = {},
+    onRefreshUsageStats: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -159,26 +171,55 @@ fun ChildDashboardScreen(
                     label = { Text("Study YT", fontSize = 10.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
                     modifier = Modifier.testTag("child_tab_youtube")
                 )
-                // Tab 1: Pomodoro Study Focus
+                // Tab 1: My App Stats Graphs & Live Screen Share
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.Timer, contentDescription = "Focus") },
-                    label = { Text("Focus", fontSize = 10.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
-                    modifier = Modifier.testTag("child_tab_focus")
+                    icon = {
+                        Box {
+                            Icon(
+                                imageVector = Icons.Default.BarChart,
+                                contentDescription = "App Stats & Screen Share",
+                                tint = when {
+                                    isMirroringActive -> CoralDanger
+                                    screenStream?.watchRequested == true -> AmberWarning
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            if (isMirroringActive || screenStream?.watchRequested == true) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isMirroringActive) CoralDanger else AmberWarning)
+                                        .align(Alignment.TopEnd)
+                                )
+                            }
+                        }
+                    },
+                    label = { Text("Stats", fontSize = 10.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                    modifier = Modifier.testTag("child_tab_stats")
                 )
-                // Tab 2: Study Timetable & Curfew
+                // Tab 2: Pomodoro Study Focus
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.Schedule, contentDescription = "Schedule") },
-                    label = { Text("Schedule", fontSize = 10.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
-                    modifier = Modifier.testTag("child_tab_schedule")
+                    icon = { Icon(Icons.Default.Timer, contentDescription = "Focus") },
+                    label = { Text("Focus", fontSize = 10.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
+                    modifier = Modifier.testTag("child_tab_focus")
                 )
-                // Tab 3: Security & System Permissions
+                // Tab 3: Study Timetable & Curfew
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.Schedule, contentDescription = "Schedule") },
+                    label = { Text("Schedule", fontSize = 10.sp, fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal) },
+                    modifier = Modifier.testTag("child_tab_schedule")
+                )
+                // Tab 4: Security, System Permissions & Parent Unlock
+                NavigationBarItem(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = {
                         Box {
                             Icon(
@@ -207,27 +248,6 @@ fun ChildDashboardScreen(
                     },
                     modifier = Modifier.testTag("child_tab_permissions")
                 )
-                // Tab 4: Parent PIN Exit Lock
-                NavigationBarItem(
-                    selected = false,
-                    onClick = onRequestParentUnlock,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Parent Unlock",
-                            tint = PurpleAccent
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = "Exit",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = PurpleAccent
-                        )
-                    },
-                    modifier = Modifier.testTag("child_tab_switch_account")
-                )
             }
         }
     ) { innerPadding ->
@@ -236,13 +256,61 @@ fun ChildDashboardScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Live Screen Request Banner if Parent requested screen watch
+            if (selectedTab != 1 && (screenStream?.watchRequested == true || isMirroringActive)) {
+                Surface(
+                    color = if (isMirroringActive) CoralDangerBg else AmberWarningBg,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedTab = 1 }
+                        .testTag("child_watch_request_banner")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ScreenShare,
+                                contentDescription = null,
+                                tint = if (isMirroringActive) CoralDanger else AmberWarning,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isMirroringActive) {
+                                    "Live screen sharing to Parent is active • Tap to manage"
+                                } else {
+                                    "Parent requested Live Screen View • Tap to Share Screen"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isMirroringActive) CoralDanger else AmberWarning
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = if (isMirroringActive) CoralDanger else AmberWarning,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
             // Optional Top Banner if permissions need configuration
-            if (selectedTab != 3 && !permissionStatus.isFullyProtected) {
+            if (selectedTab != 4 && !permissionStatus.isFullyProtected) {
                 Surface(
                     color = if (permissionStatus.allCrucialGranted) AmberWarningBg else CoralDangerBg,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { selectedTab = 3 }
+                        .clickable { selectedTab = 4 }
                         .testTag("child_permission_alert_banner")
                 ) {
                     Row(
@@ -293,8 +361,20 @@ fun ChildDashboardScreen(
                         onToggleChannelAllowed = onToggleYouTubeChannelAllowed,
                         onRemoveChannel = onRemoveYouTubeChannel
                     )
-                    // TAB 1: Pomodoro Study Focus
-                    1 -> ChildFocusShieldTab(
+                    // TAB 1: My App Time Graphs & Live Screen Share
+                    1 -> ChildStatsAndLiveTab(
+                        childName = currentChild?.name ?: "Student",
+                        hasUsagePermission = permissionStatus.isUsageAccessGranted,
+                        myUsageStats = myUsageStats,
+                        watchRequested = screenStream?.watchRequested == true,
+                        isMirroringActive = isMirroringActive,
+                        onStartScreenShare = onStartScreenShare,
+                        onStopScreenShare = onStopScreenShare,
+                        onRequestUsagePermission = { ChildPermissionManager.openUsageAccessSettings(context) },
+                        onRefreshUsageStats = onRefreshUsageStats
+                    )
+                    // TAB 2: Pomodoro Study Focus
+                    2 -> ChildFocusShieldTab(
                         rules = scheduleRules,
                         pomodoroState = pomodoroState,
                         onStartPomodoro = onStartPomodoro,
@@ -302,20 +382,115 @@ fun ChildDashboardScreen(
                         onResumePomodoro = onResumePomodoro,
                         onStopPomodoro = onStopPomodoro
                     )
-                    // TAB 2: Study Timetables & Schedules
-                    2 -> ChildScheduleTab(
+                    // TAB 3: Study Timetables & Schedules
+                    3 -> ChildScheduleTab(
                         childName = currentChild?.name ?: "Student",
                         rules = scheduleRules
                     )
-                    // TAB 3: Device Security & Permission Setup
-                    3 -> Column(modifier = Modifier.fillMaxSize()) {
+                    // TAB 4: Device Security, Permission Setup & Parent PIN Exit
+                    4 -> Column(modifier = Modifier.fillMaxSize()) {
+                        Surface(
+                            color = PurpleAccent.copy(alpha = 0.08f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Parent PIN Lock",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PurpleAccent
+                                    )
+                                    Text(
+                                        text = "Switch device role or sign out safely",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = onRequestParentUnlock,
+                                    modifier = Modifier.testTag("child_tab_switch_account")
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Parent Unlock", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                         ChildPermissionWizardScreen(
                             childName = currentChild?.name ?: "Student",
-                            onContinueToDashboard = { selectedTab = 0 }
+                            onContinueToDashboard = { selectedTab = 0 },
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// TAB 1: CHILD USAGE STATS GRAPHS & LIVE SCREEN SHARE
+// -------------------------------------------------------------
+@Composable
+private fun ChildStatsAndLiveTab(
+    childName: String,
+    hasUsagePermission: Boolean,
+    myUsageStats: List<AppUsageStatRecord>,
+    watchRequested: Boolean,
+    isMirroringActive: Boolean,
+    onStartScreenShare: () -> Unit,
+    onStopScreenShare: () -> Unit,
+    onRequestUsagePermission: () -> Unit,
+    onRefreshUsageStats: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Column {
+                Text(
+                    text = "$childName's Screen Insights",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Track how much time you spend in each app and manage Parent live screen share.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        item {
+            ChildLiveScreenShareCard(
+                watchRequested = watchRequested,
+                isMirroringActive = isMirroringActive,
+                onStartScreenShare = onStartScreenShare,
+                onStopScreenShare = onStopScreenShare
+            )
+        }
+
+        item {
+            UsageStatsGraphsCard(
+                title = "My App Time Today",
+                subtitle = "Synced live to your Parent's dashboard via Firebase",
+                stats = myUsageStats,
+                hasUsagePermission = hasUsagePermission,
+                showPermissionAction = true,
+                onRequestUsagePermission = onRequestUsagePermission,
+                onRefreshStats = onRefreshUsageStats
+            )
         }
     }
 }
