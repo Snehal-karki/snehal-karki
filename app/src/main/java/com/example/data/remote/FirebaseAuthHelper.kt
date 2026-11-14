@@ -136,8 +136,21 @@ object FirebaseAuthHelper {
                 Log.w(TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
                 onAuthCancelled()
             } catch (e: Exception) {
-                Log.e(TAG, "Google Sign-In failed", e)
-                onAuthError(e.localizedMessage ?: "Sign in failed")
+                Log.e(TAG, "Google Sign-In failed for pkg=${context.packageName} clientId=$clientId", e)
+                val rawMessage = e.localizedMessage ?: "Sign in failed"
+                val friendlyMessage = if (rawMessage.contains("28444") ||
+                    rawMessage.contains("Developer console", ignoreCase = true)
+                ) {
+                    val activeProject = runCatching { context.getString(R.string.project_id) }.getOrDefault("focussense-11122")
+                    "Google Sign-In configuration error [28444] for ${context.packageName}. " +
+                        "In Google Cloud Console for $activeProject: " +
+                        "1) Open Google Auth Platform -> Audience and Publish App (or add this device's Google account under Test users), " +
+                        "2) Complete Branding (App name & Support email), and " +
+                        "3) Verify Android OAuth client SHA-1 matches 5F:9D:E5:30:EE:52:46:4C:C3:27:37:B6:B0:F3:58:D4:20:7B:55:C3."
+                } else {
+                    rawMessage
+                }
+                onAuthError(friendlyMessage)
             }
         }
     }

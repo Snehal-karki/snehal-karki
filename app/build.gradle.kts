@@ -14,7 +14,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.focussense.app.kdqvxz"
+    applicationId = "com.focussense.family"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
